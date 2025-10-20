@@ -14,8 +14,12 @@ Key comparisons:
 import datetime
 import numpy as np
 import time
+import warnings
 from pysolar import solar
-from pysolar.vectorised import solar_angles
+from pysolar.vectorised import get_solar_angles_vector
+
+# Suppress numpy datetime64 timezone warnings (known limitation)
+warnings.filterwarnings('ignore', message='.*no explicit representation of timezones.*')
 
 
 def benchmark_full(times, lats, lons):
@@ -55,7 +59,7 @@ def benchmark_fast(times, lats, lons):
 def benchmark_vectorised(times_np, lats, lons):
     """Benchmark the vectorised implementation."""
     start = time.perf_counter()
-    azimuths, zeniths = solar_angles(lats, lons, times_np)
+    azimuths, zeniths = get_solar_angles_vector(lats, lons, times_np)
     end = time.perf_counter()
 
     elapsed = end - start

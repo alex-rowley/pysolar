@@ -31,8 +31,12 @@ most solar applications.
 import datetime
 import unittest
 import numpy as np
+import warnings
 from pysolar import solar
-from pysolar.vectorised import solar_angles
+from pysolar.vectorised import get_solar_angles_vector
+
+# Suppress numpy datetime64 timezone warnings (known limitation)
+warnings.filterwarnings('ignore', message='.*no explicit representation of timezones.*')
 
 
 class TestVectorisedSingleValue(unittest.TestCase):
@@ -51,7 +55,7 @@ class TestVectorisedSingleValue(unittest.TestCase):
 
         # Vectorised function
         time_np = np.datetime64(when)
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Compare results - allow 0.1 degree tolerance (different algorithms)
         self.assertAlmostEqual(az_orig, az_vec, places=1,
@@ -72,7 +76,7 @@ class TestVectorisedSingleValue(unittest.TestCase):
 
         # Vectorised function
         time_np = np.datetime64(when)
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Compare results - allow 0.1 degree tolerance (different algorithms)
         self.assertAlmostEqual(az_orig, az_vec, places=1,
@@ -93,7 +97,7 @@ class TestVectorisedSingleValue(unittest.TestCase):
 
         # Vectorised function
         time_np = np.datetime64(when)
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Compare results - allow 0.1 degree tolerance (different algorithms)
         self.assertAlmostEqual(az_orig, az_vec, places=1,
@@ -115,7 +119,7 @@ class TestVectorisedSingleValue(unittest.TestCase):
 
         # Vectorised function
         time_np = np.datetime64(when)
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Compare results - may have larger differences due to different algorithms
         self.assertAlmostEqual(az_orig, az_vec, places=1,
@@ -138,7 +142,7 @@ class TestVectorisedArrays(unittest.TestCase):
         lon = 0.0
 
         # Calculate using vectorised function
-        az_vec, zenith_vec = solar_angles(lat, lon, times_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, times_np)  # array case
 
         # Calculate using original functions
         az_orig = np.array([solar.get_azimuth(lat, lon, t) for t in times])
@@ -161,7 +165,7 @@ class TestVectorisedArrays(unittest.TestCase):
         lons = np.array([0.0, 172.0, 12.5350953, -78.1834, 151.2093])
 
         # Calculate using vectorised function
-        az_vec, zenith_vec = solar_angles(lats, lons, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lats, lons, time_np)  # array case
 
         # Calculate using original functions
         az_orig = np.array([solar.get_azimuth(lat, lon, when)
@@ -196,7 +200,7 @@ class TestVectorisedArrays(unittest.TestCase):
         for lat, lon in zip(lats, lons):
             for time, time_np in zip(times, times_np):
                 # Vectorised
-                az_v, z_v = solar_angles(lat, lon, time_np)
+                az_v, z_v = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
                 results_vec_az.append(az_v)
                 results_vec_zenith.append(z_v)
 
@@ -231,7 +235,7 @@ class TestVectorisedArrays(unittest.TestCase):
         times_np = np.array([np.datetime64(t) for t in times])
 
         # Vectorised
-        az_vec, zenith_vec = solar_angles(lat, lon, times_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, times_np)  # array case
 
         # Original
         az_orig = np.array([solar.get_azimuth(lat, lon, t) for t in times])
@@ -257,7 +261,7 @@ class TestVectorisedEdgeCases(unittest.TestCase):
         time_np = np.datetime64(when)
 
         # Vectorised
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Original
         az_orig = solar.get_azimuth(lat, lon, when)
@@ -279,7 +283,7 @@ class TestVectorisedEdgeCases(unittest.TestCase):
         time_np = np.datetime64(when)
 
         # Vectorised
-        az_vec, zenith_vec = solar_angles(lat, lon, time_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, time_np)  # scalar case - names unchanged
 
         # Original
         az_orig = solar.get_azimuth(lat, lon, when)
@@ -301,7 +305,7 @@ class TestVectorisedEdgeCases(unittest.TestCase):
 
         for lat in lats:
             for lon in lons:
-                az_vec, zenith_vec = solar_angles(lat, lon, times_np)
+                az_vec, zenith_vec = get_solar_angles_vector(lat, lon, times_np)  # array case
 
                 self.assertGreaterEqual(zenith_vec[0], 0.0,
                                       f"Zenith angle should be >= 0 at lat={lat}, lon={lon}")
@@ -326,7 +330,7 @@ class TestVectorisedPerformance(unittest.TestCase):
         lon = 0.0
 
         # This should complete without error
-        az_vec, zenith_vec = solar_angles(lat, lon, times_np)
+        az_vec, zenith_vec = get_solar_angles_vector(lat, lon, times_np)  # array case
 
         # Verify output shape
         self.assertEqual(az_vec.shape, times_np.shape)
