@@ -32,8 +32,8 @@ import datetime
 import unittest
 import numpy as np
 import warnings
-from pysolar import solar
-from pysolar.vectorised import get_solar_angles_vector
+from pysolar import solar, radiation
+from pysolar.vectorised import get_solar_angles_vector, get_radiation_direct_vector
 
 # Suppress numpy datetime64 timezone warnings (known limitation)
 warnings.filterwarnings('ignore', message='.*no explicit representation of timezones.*')
@@ -343,6 +343,137 @@ class TestVectorisedPerformance(unittest.TestCase):
 
         self.assertAlmostEqual(az_vec[mid_idx], az_orig, places=1)
         self.assertAlmostEqual(zenith_vec[mid_idx], 90.0 - alt_orig, places=1)
+
+
+class TestRadiationVectorised(unittest.TestCase):
+    """Test vectorised radiation calculations."""
+
+    def test_single_radiation_daytime(self):
+        """Test radiation calculation for a single daytime value."""
+        when = datetime.datetime(2016, 6, 21, 16, 0, 0, tzinfo=datetime.timezone.utc)
+        lat = 42.364908
+        lon = -71.112828
+
+        # Original method
+        alt_orig = solar.get_altitude(lat, lon, when)
+        rad_orig = radiation.get_radiation_direct(when, alt_orig)
+
+        # Vectorised method
+        az_vec, zen_vec = get_solar_angles_vector(lat, lon, np.datetime64(when))
+        alt_vec = 90.0 - zen_vec
+        rad_vec = get_radiation_direct_vector(alt_vec, np.datetime64(when))
+
+        # Should match within 1 W/m²
+        self.assertAlmostEqual(rad_orig, rad_vec, delta=1.0,
+                             msg=f"Radiation mismatch: original={rad_orig}, vectorised={rad_vec}")
+
+    def test_single_radiation_nighttime(self):
+        """Test radiation is zero at night."""
+        when = datetime.datetime(2016, 6, 21, 3, 0, 0, tzinfo=datetime.timezone.utc)
+        lat = 42.364908
+        lon = -71.112828
+
+        # Original method
+        alt_orig = solar.get_altitude(lat, lon, when)
+        rad_orig = radiation.get_radiation_direct(when, alt_orig)
+
+        # Vectorised method
+        az_vec, zen_vec = get_solar_angles_vector(lat, lon, np.datetime64(when))
+        alt_vec = 90.0 - zen_vec
+        rad_vec = get_radiation_direct_vector(alt_vec, np.datetime64(when))
+
+        # Both should be zero at night
+        self.assertEqual(rad_orig, 0.0)
+        self.assertEqual(rad_vec, 0.0)
+
+    def test_radiation_array_full_day(self):
+        """Test radiation over a full day."""
+        base_time = datetime.datetime(2016, 6, 21, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        times = [base_time + datetime.timedelta(hours=h) for h in range(24)]
+        times_np = np.array([np.datetime64(t) for t in times])
+
+        lat = 42.364908
+        lon = -71.112828
+
+        # Original method
+        rad_orig = np.array([
+            radiation.get_radiation_direct(t, solar.get_altitude(lat, lon, t))
+            for t in times
+        ])
+
+        # Vectorised method
+        az_vec, zen_vec = get_solar_angles_vector(lat, lon, times_np)
+        alt_vec = 90.0 - zen_vec
+        rad_vec = get_radiation_direct_vector(alt_vec, times_np)
+
+        # Compare arrays - allow 1 W/m² tolerance
+        np.testing.assert_allclose(rad_vec, rad_orig, atol=1.0,
+                                  err_msg="Radiation arrays don't match")
+
+    def test_radiation_peak_at_solar_noon(self):
+        """Test that peak radiation occurs near solar noon."""
+        # Summer solstice, full day
+        base_time = datetime.datetime(2016, 6, 21, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        times = [base_time + datetime.timedelta(minutes=m) for m in range(0, 24*60, 30)]
+        times_np = np.array([np.datetime64(t) for t in times])
+
+        lat = 42.364908
+        lon = -71.112828
+
+        # Vectorised method
+        az_vec, zen_vec = get_solar_angles_vector(lat, lon, times_np)
+        alt_vec = 90.0 - zen_vec
+        rad_vec = get_radiation_direct_vector(alt_vec, times_np)
+
+        # Peak should be during daylight hours (roughly 10-20 UTC for Boston in June)
+        peak_idx = np.argmax(rad_vec)
+        peak_hour = times[peak_idx].hour
+
+        self.assertGreater(peak_hour, 10, "Peak should be after 10 AM")
+        self.assertLess(peak_hour, 20, "Peak should be before 8 PM")
+        self.assertGreater(rad_vec[peak_idx], 800, "Peak radiation should be > 800 W/m²")
+
+    def test_radiation_multiple_locations(self):
+        """Test radiation at multiple locations simultaneously."""
+        when = datetime.datetime(2016, 6, 21, 16, 0, 0, tzinfo=datetime.timezone.utc)
+        time_np = np.datetime64(when)
+
+        # Different latitudes
+        lats = np.array([0.0, 30.0, 45.0, 60.0])  # Equator to high latitude
+        lons = np.array([0.0, 0.0, 0.0, 0.0])
+
+        # Vectorised calculation
+        az_vec, zen_vec = get_solar_angles_vector(lats, lons, time_np)
+        alt_vec = 90.0 - zen_vec
+        rad_vec = get_radiation_direct_vector(alt_vec, time_np)
+
+        # All should be valid (>= 0)
+        self.assertTrue(np.all(rad_vec >= 0), "All radiation values should be non-negative")
+
+        # Verify array shape
+        self.assertEqual(rad_vec.shape, lats.shape)
+
+    def test_radiation_zero_altitude(self):
+        """Test radiation at horizon (altitude = 0)."""
+        # Manually set altitude to exactly 0
+        alt = np.array([0.0])
+        when = np.array([np.datetime64('2016-06-21T12:00:00')])
+
+        rad = get_radiation_direct_vector(alt, when)
+
+        # Should be very close to zero or zero
+        self.assertLess(rad[0], 1.0, "Radiation at horizon should be near zero")
+
+    def test_radiation_high_altitude(self):
+        """Test radiation at high solar altitude (near overhead)."""
+        # Manually set high altitude
+        alt = np.array([85.0])  # Nearly overhead
+        when = np.array([np.datetime64('2016-06-21T12:00:00')])
+
+        rad = get_radiation_direct_vector(alt, when)
+
+        # Should be high radiation
+        self.assertGreater(rad[0], 800, "Radiation at high altitude should be > 800 W/m²")
 
 
 if __name__ == "__main__":

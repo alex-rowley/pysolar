@@ -1,5 +1,22 @@
 #!/usr/bin/python3
 
+#    Copyright Brandon Stafford
+#
+#    This file is part of Pysolar.
+#
+#    Pysolar is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    Pysolar is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License along
+#    with Pysolar. If not, see <http://www.gnu.org/licenses/>.
+
 """
 Performance benchmark comparing three solar calculation approaches:
 1. Full NREL SPA (get_azimuth/get_altitude) - most accurate
@@ -15,15 +32,15 @@ import datetime
 import numpy as np
 import time
 import warnings
-from pysolar import solar
-from pysolar.vectorised import get_solar_angles_vector
+from pysolar import solar, radiation
+from pysolar.vectorised import get_solar_angles_vector, get_radiation_direct_vector
 
 # Suppress numpy datetime64 timezone warnings (known limitation)
 warnings.filterwarnings('ignore', message='.*no explicit representation of timezones.*')
 
 
 def benchmark_full(times, lats, lons):
-    """Benchmark the full NREL SPA implementation (ground truth)."""
+    """Benchmark the full NREL SPA implementation."""
     n = len(times)
     azimuths = np.zeros(n)
     zeniths = np.zeros(n)
@@ -90,8 +107,8 @@ def run_benchmark(n_calculations):
         _, _, _ = benchmark_fast(times[:10], lats[:10], lons[:10])
         _, _, _ = benchmark_vectorised(times_np[:10], lats[:10], lons[:10])
 
-    # Benchmark full NREL SPA (ground truth)
-    print("\n1. Full NREL SPA (ground truth):")
+    # Benchmark full NREL SPA
+    print("\n1. Full NREL SPA:")
     print("   Running...", end=" ", flush=True)
     az_full, zen_full, time_full = benchmark_full(times, lats, lons)
     print(f"✓")
@@ -163,7 +180,7 @@ def main():
     """Run benchmarks with different sizes."""
     print("\n" + "="*80)
     print("Solar Position Algorithm Performance Benchmark")
-    print("Comparing three implementations against Full NREL SPA (ground truth)")
+    print("Comparing three implementations against Full NREL SPA")
     print("="*80)
 
     # Different test sizes
@@ -214,5 +231,85 @@ def main():
     print(f"\n")
 
 
-if __name__ == "__main__":
+def benchmark_radiation(n_calculations):
+    """Benchmark radiation calculations."""
+    print(f"\n{'='*80}")
+    print(f"RADIATION BENCHMARK: {n_calculations:,} calculations")
+    print(f"{'='*80}")
+
+    # Generate test data
+    base_time = datetime.datetime(2016, 6, 21, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    times = [base_time + datetime.timedelta(hours=i*24/n_calculations)
+             for i in range(n_calculations)]
+    times_np = np.array([np.datetime64(t) for t in times])
+
+    lat = 42.364908
+    lon = -71.112828
+
+    # Benchmark original method (get_altitude + get_radiation_direct)
+    print("\n1. Original (scalar loop):")
+    print("   Running...", end=" ", flush=True)
+    start = time.perf_counter()
+    rad_orig = np.array([
+        radiation.get_radiation_direct(t, solar.get_altitude(lat, lon, t))
+        for t in times
+    ])
+    time_orig = time.perf_counter() - start
+    print(f"✓")
+    print(f"   Time: {time_orig:.4f}s | Rate: {n_calculations/time_orig:,.0f} calcs/sec")
+
+    # Benchmark vectorised method
+    print("\n2. Vectorised (combined angles + radiation):")
+    print("   Running...", end=" ", flush=True)
+    start = time.perf_counter()
+    _, zen_vec = get_solar_angles_vector(lat, lon, times_np)
+    alt_vec = 90.0 - zen_vec
+    rad_vec = get_radiation_direct_vector(alt_vec, times_np)
+    time_vec = time.perf_counter() - start
+    print(f"✓")
+    print(f"   Time: {time_vec:.4f}s | Rate: {n_calculations/time_vec:,.0f} calcs/sec")
+
+    # Results
+    speedup = time_orig / time_vec
+    rad_diff = np.abs(rad_vec - rad_orig)
+
+    # Filter out NaN and inf values if any
+    valid_diff = rad_diff[np.isfinite(rad_diff)]
+    valid_rad = rad_vec[np.isfinite(rad_vec)]
+
+    print(f"\n{'─'*80}")
+    print(f"Speedup: {speedup:.1f}x faster")
+    print(f"Time saved: {time_orig - time_vec:.4f}s ({(1-time_vec/time_orig)*100:.1f}% reduction)")
+    print(f"\nAccuracy:")
+    if len(valid_diff) > 0:
+        print(f"  Mean difference: {np.mean(valid_diff):.2f} W/m²")
+        print(f"  Max difference:  {np.max(valid_diff):.2f} W/m²")
+    else:
+        print(f"  No valid differences to report")
+    if len(valid_rad) > 0:
+        print(f"  Mean radiation:  {np.mean(valid_rad):.2f} W/m²")
+    print(f"{'─'*80}")
+
+
+def main_with_radiation():
+    """Run all benchmarks including radiation."""
+    # Run solar position benchmarks
     main()
+
+    # Run radiation benchmarks
+    print("\n" + "="*80)
+    print("RADIATION BENCHMARKS")
+    print("="*80)
+
+    for size in [100, 1_000, 10_000]:
+        benchmark_radiation(size)
+
+    print("\n")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--with-radiation":
+        main_with_radiation()
+    else:
+        main()

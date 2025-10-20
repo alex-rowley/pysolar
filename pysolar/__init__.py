@@ -4,7 +4,8 @@ from . import \
     radiation, \
     util, \
     solar, \
-    numeric
+    numeric, \
+    vectorised
 
 def use_numpy():
     numeric.use_numpy()
